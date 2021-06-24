@@ -1,0 +1,21 @@
+[Unit]
+Description = GPIO Light Switch Service
+#Documentation = file://...
+After = multi-user.target
+#ConditionArchitecture= arm arm64
+AssertFileNotEmpty=/home/pi/raspi-gpio-lightswitch.conf
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/pi/raspi-gpio-lightswitch.py
+WorkingDirectory = /home/pi
+User = pi
+Group = pi
+SyslogIdentifier = <Name of logs for the service>
+# Restart when there are errors
+Restart = on-abnormal 
+RestartSec = 5
+TimeoutStartSec = infinity
+
+[Install]
+WantedBy=multi-user.target
