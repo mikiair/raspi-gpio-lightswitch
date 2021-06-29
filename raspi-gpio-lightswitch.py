@@ -3,8 +3,8 @@
 __author__ = "Michael Heise"
 __copyright__ = "Copyright (C) 2021 by Michael Heise"
 __license__ = "LGPL"
-__version__ = "0.2.0"
-__date__ = "06/28/2021"
+__version__ = "0.2.1"
+__date__ = "06/29/2021"
 
 """Configurable python service to run on Raspberry Pi
    and evaluate one GPIO-in to toggle one GPIO-out as light switch.
@@ -26,9 +26,10 @@ import gpiozero
 class RaspiGPIOLightSwitch:
     def __init__(self):
         self._isValidGPIO = False
-        self._CONFIGFILE = "raspi-gpio-lightswitch.conf"
-        self._valuesUpDn = ["up", "dn", "upex", "dnex"]
-        self._valuesPressRelease = ["press", "release"]
+        self.CONFIGFILE = "raspi-gpio-lightswitch.conf"
+        self.valuesUpDn = ["up", "dn", "upex", "dnex"]
+        self.valuesPressRelease = ["press", "release"]
+        self.config = None
 
     def initLogging(log):
         """initialize logging to journal"""
@@ -39,10 +40,22 @@ class RaspiGPIOLightSwitch:
         log.setLevel(logging.INFO)
         return
 
-    def initGPIO(configGPIO):
+    def readConfigFile():
+        """read the config file"""
+        try:
+            self.config = configparser.ConfigParser()
+            self.config.read(self.CONFIGFILE)
+            return True
+        except Exception:
+            log.error("Accessing config file '{0}' failed!", CONFIGFILE)
+            return False
+
+    def initGPIO():
         """evaluate the data read from config file to
         set the GPIO input and output
         """
+        configGPIO = self.config["GPIO"]
+
         log.info("Button configuration = '{0}'".format(configGPIO["Button"]))
 
         buttonConfig = configGPIO["Button"].split(",")
@@ -138,25 +151,18 @@ try:
     lightswitch.initLogging(log)
 
     log.info("Reading configuration file...")
-    try:
-        config = configparser.ConfigParser()
-        config.read(CONFIGFILE)
-    except Exception as e:
-        log.error("Accessing config file '{0}' failed!", CONFIGFILE)
+    if not lightswitch.readConfigFile():
         sys.exit(-2)
 
-    if not config["GPIO"]:
+    if not lightswitch.config["GPIO"]:
         log.error("Invalid configuration file! (No [GPIO] section)")
         sys.exit(-3)
 
     log.info("Init GPIO configuration.")
-    if not lightswitch.initGPIO(config["GPIO"]):
+    if not lightswitch.initGPIO():
         sys.exit(-3)
 
-    # log.info("Setting defined inital off state.")
-    # lightswitch.switchLight(False)
-
-    log.info("Starting service loop...")
+    log.info("Enter service loop...")
     while True:
         pass
 
