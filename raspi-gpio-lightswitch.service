@@ -20,8 +20,8 @@ AssertFileNotEmpty=/etc/raspi-gpio-lightswitch.conf
 [Service]
 Type=simple
 EnvironmentFile=/etc/gpiozero_pin_factory.conf
-ExecStart=/usr/bin/python3 /home/pi/raspi-gpio-lightswitch/raspi-gpio-lightswitch.py
-WorkingDirectory=/home/pi/raspi-gpio-lightswitch
+ExecStart=/usr/bin/python3 /usr/local/bin/raspi-gpio-lightswitch.py
+WorkingDirectory=/usr/local/bin/
 User = pi
 Group = gpio
 Restart = on-abnormal 
