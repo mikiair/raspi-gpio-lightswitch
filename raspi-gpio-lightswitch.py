@@ -3,8 +3,8 @@
 __author__ = "Michael Heise"
 __copyright__ = "Copyright (C) 2021 by Michael Heise"
 __license__ = "Apache License Version 2.0"
-__version__ = "0.3.2"
-__date__ = "08/26/2021"
+__version__ = "0.4.1"
+__date__ = "09/03/2021"
 
 """Configurable python service to run on Raspberry Pi
    and evaluate one GPIO-in to control one GPIO-out as light switch.
@@ -30,28 +30,79 @@ import sys
 import weakref
 import signal
 import logging
-from systemd.journal import JournalHandler
 import pathlib
 
 # 3rd party imports
 import gpiozero
+from systemd.journal import JournalHandler
 
 # local imports
 # - none -
 
 
 class RaspiGPIOLightSwitch:
+    CONFIGFILE = "/etc/raspi-gpio-lightswitch.conf"
+    STATEFILE = "/home/pi/.raspi-gpio-lightswitch.state"
+
+    VALUES_PULLUPDN = ["up", "dn", "upex", "dnex"]
+    VALUES_PRESS_RELEASE = ["press", "release", "press_release", "release_press"]
+    VALUES_DIMUPDN = ["up", "dn"]
+
+    # state transition matrix by dimMode, eventMode, and source status
+    # dictionary keys - source / values - target
+    # 0: Off-r / 1: On-p / 2: On-r / 3: Off-p / 4: On-p2 / 5: Off-p2 / 6: On-h / 7: Off-h
+    STATES = [
+        [
+            ({1: 2, 3: 0}, {0: 1, 2: 3}),
+            ({1: 0, 3: 2}, {0: 3, 2: 1}),
+            ({1: 2, 4: 0}, {0: 1, 2: 4}),
+            ({3: 2, 5: 0}, {0: 3, 2: 5})
+        ],
+        [
+            ({1: 2, 3: 0}, {0: 1, 2: 9}),
+            ({1: 9, 3: 2}, {0: 3, 2: 1}),
+            ({1: 2, 4: 0}, {0: 1, 2: 9}),
+            ({1: 2, 3: 2, 5: 0}, {0: 3, 2: 9})
+        ],
+        [
+            ({1: 2, 3: 0, 6: 2, 7: 0}, {0: 1, 2: 3}, {1: 6, 3: 7, 6: 6, 7: 7}),
+            ({1: 0, 3: 2, 6: 2}, {0: 3, 2: 1}, {1: 6, 3: 6, 6: 6}),
+            ({1: 2, 4: 0, 6: 2}, {0: 1, 2: 4}, {1: 6, 4: 6, 6: 6}),
+            ({3: 2, 5: 0, 6: 2, 7: 0}, {0: 3, 2: 5}, {3: 6, 5: 7, 6: 6, 7: 7})
+        ]
+    ]
+
+    # action matrix by dimMode, eventMode, and target status
+    # -1 - no action / 0 - light off / 1 - light on, restore, 2 - dim up/dn
+    ACTIONS = [
+        [
+            (-1, 1, -1, 0, None, None, None, None),
+            (0, -1, 1, -1, None, None, None, None),
+            (0, 1, -1, None, -1, None, None, None),
+            (-1, None, 1, -1, None, 0, None, None)
+        ],
+        [
+            (-1, 2, -1, 0, None, None, None, None),
+            (0, -1, 2, -1, None, None, None, None),
+            (0, 2, -1, None, -1, None, None, None),
+            (-1, -1, 2, -1, None, 0, None, None)
+        ],
+        [
+            (-1, 1, -1, 0, None, None, 2, -1),
+            (0, -1, 1, -1, None, None, 2, None),
+            (0, 1, -1, None, -1, None, 2, None),
+            (-1, None, 1, -1, None, 0, 2, -1)
+        ]
+    ]
+
+    EVENT_RELEASE = 0
+    EVENT_PRESS = 1
+    EVENT_HOLD = 2
+
     def __init__(self):
         self._finalizer = weakref.finalize(self, self.finalize)
-        
         self.isValidGPIO = False
-        self.CONFIGFILE = "/etc/raspi-gpio-lightswitch.conf"
-        self.STATEFILE = "/home/pi/raspi-gpio-lightswitch.state"
-        self.valuesPullUpDn = ["up", "dn", "upex", "dnex"]
-        self.valuesPressRelease = ["press", "release"]
-        self.valuesDimUpDn = ["up", "dn"]
         self.config = None
-        self.stored_value = 1.0
 
     def remove(self):
         self._finalizer()
@@ -59,7 +110,7 @@ class RaspiGPIOLightSwitch:
     @property
     def removed(self):
         return not self._finalizer.alive
-    
+
     def finalize(self):
         self.isValidGPIO = False
 
@@ -70,12 +121,14 @@ class RaspiGPIOLightSwitch:
         logHandler.setFormatter(log_fmt)
         log.addHandler(logHandler)
         log.setLevel(logging.INFO)
+        #log.setLevel(logging.DEBUG)
         self._log = log
         self._log.info("Initialized logging.")
 
         pinf = type(gpiozero.Device._default_pin_factory()).__name__
         self._log.info(f"GPIO Zero default pin factory: {pinf}")
         return
+
 
     def readConfigFile(self):
         """read the config file"""
@@ -89,19 +142,6 @@ class RaspiGPIOLightSwitch:
             return False
 
 
-    def readStateFile(self):
-        try:
-            if pathlib.Path(self.STATEFILE).exists():
-                self._log.info(f"Reading state file... '{self.STATEFILE}'")
-                with open(self.STATEFILE, "r") as sf:
-                    self.stored_value = float(sf.read())
-                self._log.info(f"Restored dim level {100*self.stored_value}%.")
-            else:
-                self._log.info(f"No state file found, setting default value 100%.")
-        except Exception as e:
-            self._log.error(f"Reading state file '{self.STATEFILE}' failed! ({e})")
-            
-
     def initGPIO(self):
         """evaluate the data read from the config file to
         set the GPIO input and output
@@ -111,58 +151,54 @@ class RaspiGPIOLightSwitch:
 
         self._log.info("Button configuration = '{0}'".format(configGPIO["Button"]))
 
-        buttonConfig = configGPIO["Button"].split(",")
+        buttonConfig = configGPIO["Button"].lower().split(",")
 
-        pudStr = buttonConfig[1].lower()
-        if not pudStr in self.valuesPullUpDn:
-            self._log.error(
-                "Invalid resistor configuration! Only 'UP' or 'DN' allowed!"
-            )
+        if len(buttonConfig) < 3 or len(buttonConfig) > 5:
+            self._log.error("Button configuration has too less or too many parameters!")
             return False
 
-        pud = None
-        active = None
-        if pudStr == "up":
-            pud = True
-        elif pudStr == "dn":
-            pud = False
-        elif pudStr == "upex":
-            active = False
-        elif pudStr == "dnex":
-            active = True
-
-        eventStr = buttonConfig[2].lower()
-        if not eventStr in self.valuesPressRelease:
-            self._log.error(
-                "Invalid event configuration! Only 'PRESS' or 'RELEASE' allowed!"
-            )
-            return False
-
-        event = True if eventStr == "press" else False
-
+        pudStr = buttonConfig[1]
         try:
-            if len(buttonConfig) == 4:
-                bouncetime = int(buttonConfig[3])
-            else:
-                bouncetime = 100
+            pudMode = self.VALUES_PULLUPDN.index(pudStr)
         except:
-            self._log.error("Invalid bounce time! (only integer >0 allowed)")
+            self._log.error(
+                "Invalid resistor configuration! Only 'UP', 'DN', 'UPEX' or 'DNEX' allowed!"
+            )
             return False
 
         try:
-            self._button = gpiozero.Button(
-                int(buttonConfig[0]),
-                pull_up=pud,
-                active_state=active,
-                bounce_time=0.001 * bouncetime,
-            )
-            if event:
-                self._button.when_pressed = self.toggleLight
-            else:
-                self._button.when_released = self.toggleLight
-        except Except as e:
-            self._log.error(f"Error while setting up GPIO input for button! ({e})")
+            pudSwitcher = { 0: (True, None),
+                            1: (False, None),
+                            2: (None, False),
+                            3: (None, True) }
+            pud, active = pudSwitcher[pudMode]
+        except Exception as e:
+            self._log.error(f"Could not convert pull resistor configuration! ({e})")
             return False
+
+        eventStr = buttonConfig[2]
+        try:
+            self._eventMode = self.VALUES_PRESS_RELEASE.index(eventStr)
+        except:
+            self._log.error(
+                "Invalid event configuration! Only 'PRESS', 'RELEASE', 'PRESS_RELEASE' or 'RELEASE_PRESS' allowed!"
+            )
+            return False
+
+        if len(buttonConfig) == 4:
+            try:
+                bouncetime = int(buttonConfig[3])
+            except:
+                self._log.error("Invalid bounce time! (only integer >0 allowed)")
+                return False
+        else:
+            bouncetime = 100
+
+        # init dim options
+        self._dimMode = 0
+        self._dimIndex = 1
+        self._dimLevels = 1
+        self._dimStep = 1.0
 
         if self.config.has_option("GPIO", "Dim"):
             self._log.info("Dimming configuration = '{0}'".format(configGPIO["Dim"]))
@@ -171,51 +207,67 @@ class RaspiGPIOLightSwitch:
                 dimConfig = configGPIO["Dim"].split(",")
 
                 self._dimMode = int(dimConfig[0])
-                
-                if self._dimMode > 2 | self._dimMode < 0:
-                    raise
-                
-                if ((self._dimMode == 0 & len(dimConfig) > 1) |
+
+                if self._dimMode > 2 or self._dimMode < 0:
+                    raise ValueError("Dim mode must be in range 0...2")
+
+                if ((self._dimMode == 0 and len(dimConfig) > 1) or
                     (len(dimConfig) > self._dimMode + 2)
                     ):
-                    raise
-                    
-                if len(dimConfig) > 1:
-                    self._dimStep = 1.0 / int(dimConfig[1])
-                else:
-                    self._dimStep = 0.25
+                    raise ValueError("Wrong number of parameters for dim settings")
 
-                if len(dimConfig) > 2:
-                    if dimConfig[2].lower() == "dn":
-                        self._dimStep = -self._dimStep
-                    elif dimConfig[2].lower() != "up":
-                        raise
-                    
-                if len(dimConfig) > 3:
-                    self._dimHoldSec = int(dimConfig[3])
-                else:
-                    self._dimHoldSec = 2
+                if self._dimMode > 0:
+                    # dimLevels excluding 'off'
+                    if len(dimConfig) > 1:
+                        self._dimLevels = int(dimConfig[1])
+                        if self._dimLevels <= 1:
+                            self._dimLevels = 3
+                    else:
+                        self._dimLevels = 3
+                    self._dimStep = 1.0 / self._dimLevels
+                    self._dimIndex = 0
+
+                    if len(dimConfig) > 2:
+                        dimDir = dimConfig[2].lower()
+                        if dimDir == self.VALUES_DIMUPDN[1]:
+                            self._dimStep = -self._dimStep
+                        elif dimDir != self.VALUES_DIMUPDN[0]:
+                            raise
+                    else:
+                        # default is up, no change required
+                        pass
+
+                    if len(dimConfig) > 3:
+                        self._dimHoldSec = float(dimConfig[3])
+                    else:
+                        self._dimHoldSec = 1.5
             except Exception as e:
                 self._log.error(f"Error in dimming configuration! ({e})")
                 return False
 
-            try:
-                if self._dimMode == 2:
-                    self._button.hold_time = self._dimHoldSec
-                    self._button.hold_repeat = True
-                    self._button.when_held = self.dimLight
-                elif self._dimMode == 1:
-                    if event:
-                        self._button.when_pressed = self.dimLight
-                    else:
-                        self._button.when_released = self.dimLight
-            except Exception as e:
-                self._log.error(f"Error while setting up dimming! ({e})")
-                return False
-        else:
-            self._dimMode = 0
-            self._dimStep = 0
-        
+        try:
+            self._button = gpiozero.Button(
+                int(buttonConfig[0]),
+                pull_up=pud,
+                active_state=active,
+                bounce_time=0.001 * bouncetime,
+            )
+        except Exception as e:
+            self._log.error(f"Error while setting up GPIO input for button! ({e})")
+            return False
+
+        try:
+            "set button events..."
+            self._button.when_released = self.handleWhenReleased
+            self._button.when_pressed = self.handleWhenPressed
+            if self._dimMode == 2:
+                self._button.when_held = self.handleWhenHeld
+                self._button.hold_time = self._dimHoldSec
+                self._button.hold_repeat = True
+        except Exception as e:
+            self._log.error(f"Failed to allocate button events! ({e})")
+            return False
+
         self._log.info("Light configuration = '{0}'".format(configGPIO["Light"]))
 
         try:
@@ -228,85 +280,171 @@ class RaspiGPIOLightSwitch:
             self._log.error(f"Error while setting up GPIO output for light! ({e})")
             return False
 
-        self._lightonoff = False
-
         self.isValidGPIO = True
         return True
 
 
-    def switchLight(self, state):
-        """switch the output pin to the desired state"""
-        self._log.debug("Switch light {0}".format(self.getOnOffStr(state)))
-        if state:
-            self._light.on()
-        else:
-            self._light.off()
-        self._lightonoff = self._light.is_lit
-        self._log.info("Light is {0} now.".format(self.getOnOffStr(self._lightonoff)))
+    def readStateFile(self):
+        if self._dimMode < 2:
+            return
 
-
-    def toggleLight(self):
-        """toggle the output pin"""
-        self._log.debug(
-            "Toggle light output from {0} to {1}...".format(
-                self.getOnOffStr(self._lightonoff),
-                self.getOnOffStr(not self._lightonoff),
-            )
-        )
-        if self._lightonoff:
-            self._light.off()
-        else:
-            self._light.value = self.stored_value
-            
-        self._lightonoff = self._light.is_lit
-        if self._lightonoff:
-            if self._dimMode > 0:
-                self._log.info("Light is on now at {0}%.".format(100 * self._light.value))
+        try:
+            if pathlib.Path(self.STATEFILE).exists():
+                self._log.info(f"Reading state file... '{self.STATEFILE}'")
+                with open(self.STATEFILE, "r") as sf:
+                    stored_value = float(sf.read())
+                if stored_value > self._dimLevels:
+                    stored_value = self._dimLevels
+                self._dimIndex = stored_value
+                self._log.info(f"Restored dim level {100.0*self._dimIndex/self._dimLevels}%.")
             else:
-                self._log.info("Light is on now.")
+                self._log.info(f"No state file found, setting default value 100%.")
+                self._dimIndex = self._dimLevels
+                self._log.debug(f"-> dimIndex {self._dimIndex}")
+        except Exception as e:
+            self._log.error(f"Reading state file '{self.STATEFILE}' failed! ({e})")
+
+
+    def setupStateMachine(self):
+        try:
+            self._log.info(f"Setting up state machine... (d={self._dimMode},e={self._eventMode})")
+
+            self._stateMachine = (
+                self.STATES[self._dimMode][self._eventMode],
+                self.ACTIONS[self._dimMode][self._eventMode]
+                )
+            self._actions = [self.actionOff, self.actionOn, self.actionDim]
+            self._current_state = 0
+            #print(self._stateMachine)
+        except Exception as e:
+            self._log.error(f"Error in state machine set-up! ({e})")
+
+
+    def getNextStateNumber(self, event, current):
+        try:
+            self._log.debug(f"Get next state for event {event} and current state {current}:")
+            next_temp = self._stateMachine[0][event][current]
+            self._log.debug(f"Temporary next: {next_temp}")
+            if next_temp == 9:
+                self._log.debug(f"- Special case 9... {self._dimIndex}/{self._dimLevels} -")
+                if self._dimIndex < self._dimLevels:
+                    # dim up/down
+                    self._log.debug("-- dim up/down --")
+                    next_temp = 2 if self._eventMode == 1 else 1
+                else:
+                    # off
+                    self._log.debug("-- light off --")
+                    next_temp = {0: 3, 1: 0, 2: 4, 3: 5}[self._eventMode]
+                    self._dimIndex = 0
+            return next_temp
+        except Exception as e:
+            self._log.error(f"Error while getting next state number! ({e})")
+            return -1
+
+
+    def setNextState(self, next_state):
+        try:
+            action = self._stateMachine[1][next_state]
+            self._log.debug(f"Select action for next state '{next_state}' --> {action}")
+            if action is not None:
+                self._log.debug(f"Next state '{next_state}' --> action '{action}'")
+                if action >= 0:
+                    action_call = self._actions[action]
+                    action_call()
+                self._current_state = next_state
+            else:
+                raise ValueError("Action was None!?")
+        except Exception as e:
+            self._log.error(f"Setting next state '{next_state}' failed! ({e})")
+            self._current_state = 0
+
+
+    def handleButtonEvent(self, event):
+        self._log.debug(f"Handle button event {event}...")
+        next_state = self.getNextStateNumber(event, self._current_state)
+        self._log.debug(f"Current: {self._current_state} event {event} --> Next: {next_state}")
+        if next_state >= 0:
+            self.setNextState(next_state)
+
+
+    def handleWhenReleased(self):
+        self._log.debug("- when_released event -")
+        self.handleButtonEvent(self.EVENT_RELEASE)
+
+
+    def handleWhenPressed(self):
+        self._log.debug("- when_pressed event -")
+        self.handleButtonEvent(self.EVENT_PRESS)
+
+
+    def handleWhenHeld(self):
+        self._log.debug("- when_held event -")
+        self.handleButtonEvent(self.EVENT_HOLD)
+
+
+    def setLightToLevel(self, new_value):
+        """Set the light to a new value (0...1) and then log its new state
+        """
+        try:
+            self._light.value = new_value
+
+            if self._light.is_lit:
+                self._log.info(f"Light is on now at {100 * self._light.value}%.")
+            else:
+                self._log.info("Light is off now.")
+        except:
+            self._log.error(f"Could not set new light value {100 * new_value}%!")
+
+
+    def actionOff(self):
+        self._log.info("Action: light off")
+        self.setLightToLevel(0.0)
+
+
+    def actionOn(self):
+        self._log.info("Action: light on (restore previous dim level)")
+        self._log.debug(f"dimStep {self._dimStep}  dimIndex {self._dimIndex}  dimMode {self._dimMode}")
+        if self._dimStep > 0:
+            next_value = self._dimIndex * self._dimStep
         else:
-            self._log.info("Light is off now.")
+            next_value = 1.0 + (self._dimIndex - 1) * self._dimStep
+
+        self.setLightToLevel(next_value)
 
 
-    def dimLight(self):
-        """dim the light up/dn using configured settings"""
-        self._log.debug(
-            "Dim light {0}.".format("up" if self._dimStep > 0 else "dn")
-            )
+    def actionDim(self):
+        self._log.info("Action: dim light one step up/dn")
+        self._dimIndex += 1
+        if self._dimIndex > self._dimLevels:
+            self._dimIndex = 1
 
-        next_value = self._light.value + self._dimStep
-        if next_value < 0:
-            next_value = 1.0
-
-        if next_value > 1.0:
-            next_value = 0 if self._dimMode == 1 else self._dimStep
-
-        self._light.value = next_value
-
-        self._lightonoff = self._light.is_lit
-        if self._lightonoff:
-            self._log.info(f"Light is on now at {100 * self._light.value}%.")
+        if self._dimStep > 0:
+            next_value = self._dimIndex * self._dimStep
         else:
-            self._log.info("Light is off now.")
+            next_value = 1.0 + (self._dimIndex - 1) * self._dimStep
 
-        if next_value > 0:
-            self.stored_value = next_value
+        self._log.debug(f"next_value {next_value}  dimIndex {self._dimIndex}")
+        self.setLightToLevel(next_value)
+
+        if self._dimMode == 2:
             self.writeStateFile()
-            
-
-    def getOnOffStr(self, state):
-        return "On" if state else "Off"
 
 
     def writeStateFile(self):
         try:
             self._log.debug(f"Writing state file... '{self.STATEFILE}'")
             with open(self.STATEFILE, "w") as sf:
-                sf.write(str(self.stored_value))
+                sf.write(str(self._dimIndex))
         except Exception as e:
             self._log.error(f"Writing state file '{self.STATEFILE}' failed! ({e})")
 
-        
+
+    def switchLightOff(self):
+        """switch the output pin off"""
+        self._light.off()
+        self._log.info("Light is off now.")
+
+
 def sigterm_handler(_signo, _stack_frame):
     """clean exit on SIGTERM signal (when systemd stops the process)"""
     sys.exit(0)
@@ -331,11 +469,13 @@ try:
         log.error("Invalid configuration file! (No [GPIO] section)")
         sys.exit(-3)
 
-    lightswitch.readStateFile()
-    
     if not lightswitch.initGPIO():
         log.error("Init GPIO failed!")
         sys.exit(-3)
+
+    lightswitch.readStateFile()
+
+    lightswitch.setupStateMachine()
 
     log.info("Enter service loop...")
     while True:
@@ -349,4 +489,4 @@ finally:
     if lightswitch and lightswitch.isValidGPIO:
         if log:
             log.info("Finally setting output to off state.")
-        lightswitch.switchLight(False)
+        lightswitch.switchLightOff()
