@@ -3,7 +3,7 @@
 __author__ = "Michael Heise"
 __copyright__ = "Copyright (C) 2021 by Michael Heise"
 __license__ = "Apache License Version 2.0"
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 __date__ = "09/04/2021"
 
 """Configurable python service to run on Raspberry Pi
@@ -292,8 +292,6 @@ class RaspiGPIOLightSwitch:
             else:
                 self._light = gpiozero.PWMLED(lightPin, frequency=256)
 
-            self._log.info("Test")
-
         except Exception as e:
             self._log.error(f"Error while setting up GPIO output for light! ({e})")
             return False
@@ -393,6 +391,9 @@ class RaspiGPIOLightSwitch:
         )
         if next_state >= 0:
             self.setNextState(next_state)
+        else:
+            self._log.error("Try resetting current state to 0...")
+            self._current_state = 0
 
     def handleWhenReleased(self):
         self._log.debug("- when_released event -")
