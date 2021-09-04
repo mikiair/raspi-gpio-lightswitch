@@ -80,18 +80,22 @@ e.g.
 
 configures pin GPIO9 as input expecting an external pull-up resistor, and acting when button is pressed with a bounce time of 100ms.
 
-The ``Light`` key only contains the GPIO output pin where your LED (or MOSFET etc.) is connected::
+The ``Light`` key contains the GPIO output pin and an optional brightness correction parameter::
 
-  Light = output_pin_number
+  Light = output_pin_number[,brightness_exp]
 
 ``output_pin_number``
-  The GPIO pin the light is connected to.
+  The GPIO pin where your LED (or MOSFET etc.) is connected to.
+  
+``brightness_exp``
+  (*optional*) float number used for brightness linearisation (when dimming); default is 1.0; 
+  useful values depend on the type of LED, typically something in the range of 2...3 should fit
    
 e.g.
 
-``Light = 12``
+``Light = 12,2``
    
-configures pin GPIO12 as output.
+configures pin GPIO12 as output and uses 2.0 as an exponent for brightness linearisation.
 
 The ``Dim`` key uses the following parameters::
 

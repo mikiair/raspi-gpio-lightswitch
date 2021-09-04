@@ -3,7 +3,7 @@
 __author__ = "Michael Heise"
 __copyright__ = "Copyright (C) 2021 by Michael Heise"
 __license__ = "Apache License Version 2.0"
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __date__ = "09/04/2021"
 
 """Configurable python service to run on Raspberry Pi
@@ -274,11 +274,26 @@ class RaspiGPIOLightSwitch:
         self._log.info("Light configuration = '{0}'".format(configGPIO["Light"]))
 
         try:
-            lightConfig = int(configGPIO["Light"])
-            if self._dimMode == 0:
-                self._light = gpiozero.LED(lightConfig)
+            lightConfig = configGPIO["Light"].split(",")
+
+            lightPin = int(lightConfig[0])
+
+            if len(lightConfig) == 2:
+                self._linExp = float(lightConfig[1])
+                if self._linExp < 1:
+                    raise ValueError("Exponent must be >1!")
+            elif len(lightConfig) > 2:
+                raise ValueError("Too many options for light configuration! (max. 2)")
             else:
-                self._light = gpiozero.PWMLED(lightConfig, frequency=200)
+                self._linExp = 1.0
+
+            if self._dimMode == 0:
+                self._light = gpiozero.LED(lightPin)
+            else:
+                self._light = gpiozero.PWMLED(lightPin, frequency=256)
+
+            self._log.info("Test")
+
         except Exception as e:
             self._log.error(f"Error while setting up GPIO output for light! ({e})")
             return False
@@ -394,7 +409,10 @@ class RaspiGPIOLightSwitch:
     def setLightToLevel(self, new_value):
         """set the light to a new value (0...1) and then log its new state"""
         try:
-            self._light.value = new_value
+            if self._linExp == 1.0:
+                self._light.value = new_value
+            else:
+                self._light.value = pow(new_value, self._linExp)
 
             if self._light.is_lit:
                 self._log.info(f"Light is on now at {100 * self._light.value}%.")
