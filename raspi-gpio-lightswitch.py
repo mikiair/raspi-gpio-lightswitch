@@ -3,8 +3,8 @@
 __author__ = "Michael Heise"
 __copyright__ = "Copyright (C) 2021 by Michael Heise"
 __license__ = "Apache License Version 2.0"
-__version__ = "1.1.1"
-__date__ = "09/04/2021"
+__version__ = "1.1.2"
+__date__ = "09/12/2021"
 
 """Configurable python service to run on Raspberry Pi
    and evaluate one GPIO-in to control one GPIO-out as light switch.
@@ -31,6 +31,7 @@ import weakref
 import signal
 import logging
 import pathlib
+import time
 
 # 3rd party imports
 import gpiozero
@@ -290,7 +291,7 @@ class RaspiGPIOLightSwitch:
             if self._dimMode == 0:
                 self._light = gpiozero.LED(lightPin)
             else:
-                self._light = gpiozero.PWMLED(lightPin, frequency=256)
+                self._light = gpiozero.PWMLED(lightPin, frequency=400)
 
         except Exception as e:
             self._log.error(f"Error while setting up GPIO output for light! ({e})")
@@ -505,9 +506,9 @@ try:
 
     lightswitch.setupStateMachine()
 
-    log.info("Enter service loop...")
+    log.info("Enter raspi-gpio-lightswitch service loop...")
     while True:
-        pass
+        time.sleep(1)
 
 except Exception as e:
     if log:
