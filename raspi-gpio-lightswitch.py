@@ -4,7 +4,7 @@ __author__ = "Michael Heise"
 __copyright__ = "Copyright (C) 2021 by Michael Heise"
 __license__ = "Apache License Version 2.0"
 __version__ = "1.1.3"
-__date__ = "10/24/2021"
+__date__ = "10/31/2021"
 
 """Configurable python service to run on Raspberry Pi
    and evaluate one GPIO-in to control one GPIO-out as light switch.
@@ -164,7 +164,7 @@ class RaspiGPIOLightSwitch:
 
     def getButtonConfig(self, buttonConfig):
         """Get button configuration from split string."""
-        if len(buttonConfig) < 3 or len(buttonConfig) > 5:
+        if len(buttonConfig) < 3 or len(buttonConfig) > 4:
             self._log.error("Button configuration has too less or too many parameters!")
             return False
 
@@ -208,65 +208,79 @@ class RaspiGPIOLightSwitch:
     def checkDimModeRange(self):
         """Check dimMode for valid range (0...2)."""
         if self._dimMode > 2 or self._dimMode < 0:
-            raise ValueError("Dim mode must be in range 0...2")
+            self._log.error("Dim mode must be in range 0...2")
+            return False
+        return True
 
     def checkDimConfigParamCount(self, dimConfigLen):
         """Check the number of parameters provided against selected dimMode."""
         if (self._dimMode == 0 and dimConfigLen > 1) or (
             dimConfigLen > self._dimMode + 2
         ):
-            raise ValueError("Wrong number of parameters for dim settings")
+            self._log.error("Wrong number of parameters for dim settings")
+            return False
+        return True
 
     def getDimmingConfig(self, dimConfig):
         """Get dimming options from config split string."""
-        try:
-            self._dimMode = int(dimConfig[0])
+        self._dimMode = int(dimConfig[0])
 
-            self.checkDimModeRange()
-
-            self.checkDimConfigParamCount(len(dimConfig))
-
-            if self._dimMode == 0:
-                return True
-
-            # dimLevels excluding 'off'
-            if len(dimConfig) > 1:
-                self._dimLevels = int(dimConfig[1])
-                if self._dimLevels <= 1:
-                    self._dimLevels = 3
-            else:
-                self._dimLevels = 3
-            self._dimStep = 1.0 / self._dimLevels
-            self._dimIndex = 0
-
-            if len(dimConfig) > 2:
-                dimDir = dimConfig[2].lower()
-                if dimDir == self.VALUES_DIMUPDN[1]:
-                    self._dimStep = -self._dimStep
-                elif dimDir != self.VALUES_DIMUPDN[0]:
-                    raise
-            else:
-                # default is up, no change required
-                pass
-
-            if len(dimConfig) > 3:
-                self._dimHoldSec = float(dimConfig[3])
-            else:
-                self._dimHoldSec = 1.5
-        except Exception as e:
-            self._log.error(f"Error in dimming configuration! ({e})")
+        if not self.checkDimModeRange():
             return False
+
+        if not self.checkDimConfigParamCount(len(dimConfig)):
+            return False
+
+        if self._dimMode == 0:
+            return True
+
+        # dimLevels excluding 'off'
+        if len(dimConfig) > 1:
+            self._dimLevels = int(dimConfig[1])
+            if self._dimLevels <= 1:
+                self._dimLevels = 3
+        else:
+            self._dimLevels = 3
+        self._dimStep = 1.0 / self._dimLevels
+        self._dimIndex = 0
+
+        if len(dimConfig) > 2:
+            dimDir = dimConfig[2].lower()
+            if dimDir == self.VALUES_DIMUPDN[1]:
+                self._dimStep = -self._dimStep
+            elif dimDir != self.VALUES_DIMUPDN[0]:
+                self._log.error("Invalid dim direction configuration!")
+                return False
+        else:
+            # default is up, no change required
+            pass
+
+        if len(dimConfig) > 3:
+            try:
+                self._dimHoldSec = float(dimConfig[3])
+            except Excpetion:
+                self._log.error("Invalid hold time!")
+                return False
+        else:
+            self._dimHoldSec = 1.5
+
+        return True
 
     def createAndConfigureButton(self):
         """Create GPIO Zero button object and configure its event handlers."""
         # -------- create button object --------
         try:
+            self._log.debug(self._buttonPin,
+                            self._pud,
+                            self._active,
+                            self._bouncetime)
             self._button = gpiozero.Button(
                 self._buttonPin,
                 pull_up=self._pud,
                 active_state=self._active,
                 bounce_time=0.001 * self._bouncetime,
             )
+            return True
         except Exception as e:
             self._log.error(f"Error while setting up GPIO input for button! ({e})")
             return False
