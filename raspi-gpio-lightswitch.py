@@ -3,8 +3,8 @@
 __author__ = "Michael Heise"
 __copyright__ = "Copyright (C) 2021 by Michael Heise"
 __license__ = "Apache License Version 2.0"
-__version__ = "1.1.3"
-__date__ = "10/31/2021"
+__version__ = "1.1.4"
+__date__ = "11/06/2021"
 
 """Configurable python service to run on Raspberry Pi
    and evaluate one GPIO-in to control one GPIO-out as light switch.
@@ -228,14 +228,15 @@ class RaspiGPIOLightSwitch:
         if not self.checkDimModeRange():
             return False
 
-        if not self.checkDimConfigParamCount(len(dimConfig)):
+        dimConfigLen = len(dimConfig)
+        if not self.checkDimConfigParamCount(dimConfigLen):
             return False
 
         if self._dimMode == 0:
             return True
 
-        # dimLevels excluding 'off'
-        if len(dimConfig) > 1:
+        # dimLevels number excludes 'off'
+        if dimConfigLen > 1:
             self._dimLevels = int(dimConfig[1])
             if self._dimLevels <= 1:
                 self._dimLevels = 3
@@ -244,7 +245,7 @@ class RaspiGPIOLightSwitch:
         self._dimStep = 1.0 / self._dimLevels
         self._dimIndex = 0
 
-        if len(dimConfig) > 2:
+        if dimConfigLen > 2:
             dimDir = dimConfig[2].lower()
             if dimDir == self.VALUES_DIMUPDN[1]:
                 self._dimStep = -self._dimStep
@@ -255,10 +256,10 @@ class RaspiGPIOLightSwitch:
             # default is up, no change required
             pass
 
-        if len(dimConfig) > 3:
+        if dimConfigLen > 3:
             try:
                 self._dimHoldSec = float(dimConfig[3])
-            except Excpetion:
+            except Exception:
                 self._log.error("Invalid hold time!")
                 return False
         else:
@@ -280,7 +281,6 @@ class RaspiGPIOLightSwitch:
                 active_state=self._active,
                 bounce_time=0.001 * self._bouncetime,
             )
-            return True
         except Exception as e:
             self._log.error(f"Error while setting up GPIO input for button! ({e})")
             return False
@@ -293,12 +293,14 @@ class RaspiGPIOLightSwitch:
                 self._button.when_held = self.handleWhenHeld
                 self._button.hold_time = self._dimHoldSec
                 self._button.hold_repeat = True
-            return True
         except Exception as e:
             self._log.error(f"Failed to allocate button events! ({e})")
             return False
 
-    def getLightConfig(self, lightConfig):
+        return True
+
+    def createAndConfigureLight(self, lightConfig):
+        """Create GPIO Zero LED object and configure dim brightness correction."""
         try:
             lightPin = int(lightConfig[0])
 
@@ -346,7 +348,7 @@ class RaspiGPIOLightSwitch:
         if self.config.has_option("GPIO", "Dim"):
             self._log.info("Dimming configuration = '{0}'".format(configGPIO["Dim"]))
 
-            dimConfig = configGPIO["Dim"].split(",")
+            dimConfig = configGPIO["Dim"].lower().split(",")
 
             if not self.getDimmingConfig(dimConfig):
                 return False
@@ -355,12 +357,12 @@ class RaspiGPIOLightSwitch:
         if not self.createAndConfigureButton():
             return False
 
-        # -------- get light configuration --------
+        # -------- create and configure light object --------
         self._log.info("Light configuration = '{0}'".format(configGPIO["Light"]))
 
         lightConfig = configGPIO["Light"].split(",")
 
-        if not self.getLightConfig(lightConfig):
+        if not self.createAndConfigureLight(lightConfig):
             return False
 
         self.isValidGPIO = True
