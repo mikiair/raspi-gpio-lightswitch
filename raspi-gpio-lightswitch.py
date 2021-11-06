@@ -221,6 +221,40 @@ class RaspiGPIOLightSwitch:
             return False
         return True
 
+    def configureDimLevels(self, dimConfigLen, dimConfig):
+        """Get the number of dim levels from the configuration or set default of 3."""
+        # dimLevels number excludes 'off'
+        if dimConfigLen > 1:
+            self._dimLevels = int(dimConfig[1])
+            if self._dimLevels <= 1:
+                self._dimLevels = 3
+        else:
+            self._dimLevels = 3
+
+        self._dimStep = 1.0 / self._dimLevels
+        self._dimIndex = 0
+
+    def configureDimDirection(self, dimConfigLen, dimConfig):
+        if dimConfigLen > 2:
+            dimDir = dimConfig[2].lower()
+            if dimDir == self.VALUES_DIMUPDN[1]:
+                self._dimStep = -self._dimStep
+            elif dimDir != self.VALUES_DIMUPDN[0]:
+                self._log.error("Invalid dim direction configuration!")
+                return False
+        return True
+
+    def configureDimHoldtime(self, dimConfigLen, dimConfig):
+        if dimConfigLen > 3:
+            try:
+                self._dimHoldSec = float(dimConfig[3])
+            except Exception:
+                self._log.error("Invalid hold time!")
+                return False
+        else:
+            self._dimHoldSec = 1.5
+        return True
+
     def getDimmingConfig(self, dimConfig):
         """Get dimming options from config split string."""
         self._dimMode = int(dimConfig[0])
@@ -235,35 +269,13 @@ class RaspiGPIOLightSwitch:
         if self._dimMode == 0:
             return True
 
-        # dimLevels number excludes 'off'
-        if dimConfigLen > 1:
-            self._dimLevels = int(dimConfig[1])
-            if self._dimLevels <= 1:
-                self._dimLevels = 3
-        else:
-            self._dimLevels = 3
-        self._dimStep = 1.0 / self._dimLevels
-        self._dimIndex = 0
+        self.configureDimLevels(dimConfigLen, dimConfig)
 
-        if dimConfigLen > 2:
-            dimDir = dimConfig[2].lower()
-            if dimDir == self.VALUES_DIMUPDN[1]:
-                self._dimStep = -self._dimStep
-            elif dimDir != self.VALUES_DIMUPDN[0]:
-                self._log.error("Invalid dim direction configuration!")
-                return False
-        else:
-            # default is up, no change required
-            pass
+        if not self.configureDimDirection(dimConfigLen, dimConfig):
+            return False
 
-        if dimConfigLen > 3:
-            try:
-                self._dimHoldSec = float(dimConfig[3])
-            except Exception:
-                self._log.error("Invalid hold time!")
-                return False
-        else:
-            self._dimHoldSec = 1.5
+        if not self.configureDimHoldtime(dimConfigLen, dimConfig):
+            return False
 
         return True
 
@@ -271,10 +283,7 @@ class RaspiGPIOLightSwitch:
         """Create GPIO Zero button object and configure its event handlers."""
         # -------- create button object --------
         try:
-            self._log.debug(self._buttonPin,
-                            self._pud,
-                            self._active,
-                            self._bouncetime)
+            self._log.debug(self._buttonPin, self._pud, self._active, self._bouncetime)
             self._button = gpiozero.Button(
                 self._buttonPin,
                 pull_up=self._pud,
