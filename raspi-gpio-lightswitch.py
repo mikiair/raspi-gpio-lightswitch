@@ -4,13 +4,13 @@ __author__ = "Michael Heise"
 __copyright__ = "Copyright (C) 2021 by Michael Heise"
 __license__ = "Apache License Version 2.0"
 __version__ = "1.1.4"
-__date__ = "11/06/2021"
+__date__ = "19/06/2022"
 
 """Configurable python service to run on Raspberry Pi
    and evaluate one GPIO-in to control one GPIO-out as light switch.
 """
 
-#    Copyright 2021 Michael Heise (mikiair)
+#    Copyright 2022 Michael Heise (mikiair)
 #
 #    Licensed under the Apache License, Version 2.0 (the "License");
 #    you may not use this file except in compliance with the License.
@@ -590,7 +590,7 @@ try:
 
     log.info("Enter raspi-gpio-lightswitch service loop...")
     while True:
-        time.sleep(1)
+        time.sleep(0.1)
 
 except Exception as e:
     if log:

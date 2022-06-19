@@ -1,0 +1,7 @@
+#!/bin/bash
+
+echo "Restarting raspi-gpio-lightswitch service..."
+sudo systemctl restart raspi-gpio-lightswitch
+systemctl status raspi-gpio-lightswitch
+echo "Done."
+

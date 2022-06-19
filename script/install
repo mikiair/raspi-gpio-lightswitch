@@ -1,0 +1,63 @@
+#!/bin/bash
+
+set -e
+
+cd "$(dirname "$0")/.."
+
+echo "Installing raspi-gpio-lightswitch service..."
+
+echo "Installing pigpiod service"
+sudo apt install python3-pigpio
+
+echo "Enabling and starting pigpiod service"
+
+if [ ! -e /etc/gpiozero_pin_factory.conf ]
+  then
+    sudo cp gpiozero_pin_factory.conf /etc
+  else
+    echo "File '/etc/gpiozero_pin_factory.conf' already exists. Did not overwrite."
+fi
+
+sudo systemctl enable pigpiod
+sudo systemctl start pigpiod
+
+echo "Installing required packages"
+sudo apt install python3-gpiozero python3-systemd
+
+if [ -e /etc/raspi-gpio-lightswitch.conf ]
+  then
+    read -p "Overwrite existing configuration file '/etc/raspi-gpio-lightswitch.conf' (y/N)?" ov
+  else
+    ov="y"
+fi
+
+if [ "$ov" == "y" -o "$ov" == "Y" ]
+  then
+    sudo cp raspi-gpio-lightswitch.conf /etc
+fi
+
+if  [ -e /usr/local/bin/raspi-gpio-lightswitch.py ]
+  then
+    echo "Updating service script '/usr/local/bin/raspi-gpio-lightswitch.py' (temporarily stopping service)"
+    sudo systemctl stop raspi-gpio-lightswitch
+fi
+
+sudo cp raspi-gpio-lightswitch.py /usr/local/bin/
+sudo chmod +x /usr/local/bin/raspi-gpio-lightswitch.py
+
+sudo cp raspi-gpio-lightswitch.service /lib/systemd/system
+
+if id -nGz "pi" | grep -qzxF "gpio"
+  then
+    echo "User 'pi' already belongs to group 'gpio'."
+  else
+    sudo usermod -a -G gpio pi
+fi
+
+echo "Starting raspi-gpio-lightswitch service..."
+
+sudo systemctl enable raspi-gpio-lightswitch
+sudo systemctl daemon-reload
+sudo systemctl start raspi-gpio-lightswitch
+
+echo "raspi-gpio-lightswitch service installed."
