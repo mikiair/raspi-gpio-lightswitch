@@ -3,14 +3,14 @@
 __author__ = "Michael Heise"
 __copyright__ = "Copyright (C) 2022 by Michael Heise"
 __license__ = "Apache License Version 2.0"
-__version__ = "1.1.4"
-__date__ = "19/06/2022"
+__version__ = "1.1.5"
+__date__ = "07/06/2024"
 
 """Configurable python service to run on Raspberry Pi
    and evaluate one GPIO-in to control one GPIO-out as light switch.
 """
 
-#    Copyright 2022 Michael Heise (mikiair)
+#    Copyright 2022-2024 Michael Heise (mikiair)
 #
 #    Licensed under the Apache License, Version 2.0 (the "License");
 #    you may not use this file except in compliance with the License.

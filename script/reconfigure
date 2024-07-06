@@ -7,7 +7,7 @@ set -e
 cd "$(dirname "$0")/.."
 
 sudo systemctl stop raspi-gpio-lightswitch
-sudo cp raspi-gpio-lightswitch.conf /etc
+sudo cp -u raspi-gpio-lightswitch.conf /etc
 sudo systemctl start raspi-gpio-lightswitch
 systemctl status raspi-gpio-lightswitch
 

@@ -5,61 +5,38 @@ This is a configurable Python service to run on `Raspberry Pi <https://www.raspb
 **raspi-gpio-lightswitch** runs a Python script as a service on Raspberry Pi. It uses the `GPIO Zero <https://github.com/gpiozero/gpiozero>`_ package which allows 
 selecting among various underlying pin factories. Tested with `pigpio <http://abyz.me.uk/rpi/pigpio/index.html>`_ library only (e.g. supports using hardware PWM). The configuration allows setting the button events to act on, and supports two different dimming modes via PWM outputs.
 
+Required packages
+-----------------
+* pigpiod (or any other supported pin factory library)
+* GPIO Zero
+* python3-systemd
+
 Installation
 ------------
-Automated installation is not yet supported. Follow the manual steps below instead.
-
-1. Install pigpio (or any other of the supported `pin-factories <https://gpiozero.readthedocs.io/en/stable/api_pins.html#changing-the-pin-factory>`_):
-
-   | ``sudo apt update``
-   | ``sudo apt install python3-pigpio``
-  
-#. Install GPIO Zero (if not included as a default in your OS distribution)
-   
-   ``sudo apt install python3-gpiozero``
-   
-#. Install python-systemd package
-
-   ``sudo apt install python3-systemd``
-
-#. If not already included, add the *pi* user to the *gpio* group (check with ``groups pi`` command)
-
-   ``sudo usermod -a -G gpio mopidy``
-   
-#. Download raspi-gpio-lightswitch via **Code** button or from `Releases <https://github.com/mikiair/raspi-gpio-lightswitch/releases>`_ page (you most likely did this already):
-
-#. Unzip the received file:
+Download raspi-gpio-lightswitch via **Code** button or from `Releases <https://github.com/mikiair/raspi-gpio-lightswitch/releases>`_ page (you most likely did already).
+Unzip the received file:
 
    ``unzip raspi-gpio-lightswitch-main.zip -d ~/raspi-gpio-lightswitch``
 
-#. Configure the service according to your external hardware circuit set-up (see Configuration_).
+Configure the service by editing the file ``raspi-gpio-lightswitch.conf`` according to your external hardware circuit set-up (see Configuration_). 
+Then simply run the script ``install`` in the **script** sub-folder. It will download and install the required packages, 
+copy the files to their destinations, will register the service, and finally start it.
 
-#. Copy the two configuration files to **/etc** folder
+If you need to change the configuration after installation, you might use the script ``reconfigure`` after editing the source configuration file.
+This will stop the service, copy the changed configuration file to **/etc** folder (overwrites previous version!), and then start the service again.
 
-   | ``sudo cp ~/raspi-gpio-lightswitch/gpiozero_pin_factory.conf /etc``
-   | ``sudo cp ~/raspi-gpio-lightswitch/raspi-gpio-lightswitch.conf /etc``
-   
-   The first one is an environment file for the service and defines the default pin-factory for GPIO Zero. The second one holds the actual configuration for the lightswitch service.
+If you downloaded a newer version of the service the script ``update`` will handle stop and start of the service, and will copy the new Python and service files.
+However, this will not update any underlying packages or services.
 
-#. Copy the Python file to **/usr/local/bin** folder
+For uninstall, use the provided script ``uninstall``.
 
-   ``sudo cp ~/raspi-gpio-lightswitch/raspi-gpio-lightswitch.py /usr/local/bin``
-   
-#. Copy the service file to **/lib/systemd/system** folder
-   
-   ``sudo cp ~/raspi-gpio-lightswitch/raspi-gpio-lightswitch.service /lib/systemd/system``
-   
-#. Enable the service to persist after reboot
-
-   ``sudo systemctl enable raspi-gpio-lightswitch``
-   
-#. Reboot
- 
 Configuration
 -------------
+The configuration is defined in the file ``raspi-gpio-lightswitch.conf``. Before installation, you will find the source file in the folder where you unzipped the package files. 
+After installation, the active version is in **/etc** folder.
 
-The configuration is defined in the file ``raspi-gpio-lightswitch.conf``. It requires a section ``[GPIO]`` with mandatory keys ``Button`` and ``Light``, 
-and optional key ``Dim``. All pin numbers must be given in BCM format, not physical pin numbering!
+It requires a section ``[GPIO]`` with mandatory keys ``Button`` and ``Light``, and optional key ``Dim``. 
+All pin numbers must be given in BCM format, not physical pin numbering!
 
 The ``Button`` key must be created based on this pattern::
 
